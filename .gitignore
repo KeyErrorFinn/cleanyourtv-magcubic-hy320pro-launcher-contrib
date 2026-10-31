@@ -19,3 +19,16 @@ traces/
 *.aab
 launcher/hs_err_pid*.log
 launcher/replay_pid*.log
+
+# HY320 fork local/release state
+**/.cxx/
+dist/
+.local/
+setup-records/
+**/*.keystore
+**/*.jks
+settings-starter/dependencies/
+settings-starter/classes/
+settings-starter/dex/
+settings-starter/*.so
+settings-starter/generated/

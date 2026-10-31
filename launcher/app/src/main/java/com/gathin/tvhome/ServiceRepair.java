@@ -35,6 +35,9 @@ final class ServiceRepair {
     }
 
     static void restore(Context context) {
+        // This device's development grant is approved only for two automatic-time keys.
+        // A theme flag must not turn that grant into accessibility-service restoration.
+        if (context.getResources().getBoolean(R.bool.secure_settings_time_controls_only)) return;
         if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
                 != PackageManager.PERMISSION_GRANTED) return;
         try {

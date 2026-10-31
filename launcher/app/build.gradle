@@ -5,14 +5,42 @@ plugins {
 android {
     namespace 'com.gathin.tvhome'
     compileSdk 34
+    ndkVersion '30.0.16248370'
+    buildFeatures { buildConfig true }
+    flavorDimensions 'edition'
+    productFlavors {
+        basic {
+            dimension 'edition'
+            buildConfigField 'boolean', 'ADVANCED_SETTINGS', 'false'
+            versionNameSuffix '-basic'
+            resValue 'string', 'edition_app_name', 'CleanYourTV HY320 Pro Basic'
+        }
+        advanced {
+            dimension 'edition'
+            buildConfigField 'boolean', 'ADVANCED_SETTINGS', 'true'
+            versionNameSuffix '-advanced'
+            resValue 'string', 'edition_app_name', 'CleanYourTV HY320 Pro Advanced'
+        }
+    }
+    signingConfigs {
+        publicRelease {
+            storeFile file(System.getenv('CYTV_KEYSTORE') ?: System.getProperty('user.home') + '/.android/debug.keystore')
+            keyAlias System.getenv('CYTV_KEY_ALIAS') ?: 'androiddebugkey'
+            storePassword System.getenv('CYTV_STORE_PASSWORD') ?: 'android'
+            keyPassword System.getenv('CYTV_KEY_PASSWORD') ?: 'android'
+        }
+    }
 
     defaultConfig {
         // Opt-in identity for firmware with a package-name HOME allowlist; see docs/devices/xiaomi-mitv-aetp0-dofus.md.
         applicationId providers.gradleProperty('launcherApplicationId').getOrElse('com.gathin.tvhome')
         minSdk 26
         targetSdk 34
-        versionCode 8
-        versionName '2.7'
+        versionCode 100
+        versionName '1.0.0'
+        buildConfigField 'String', 'SIGNING_CERT_SHA256', '"' + providers.gradleProperty('releaseCertificateSha256').getOrElse('UNCONFIGURED') + '"'
+        ndk { abiFilters 'armeabi-v7a' }
+        externalNativeBuild { cmake { arguments '-DANDROID_STL=none' } }
     }
 
     buildTypes {
@@ -21,8 +49,8 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Sideloaded over ADB, never published: sign with the debug key so it installs over a debug build.
-            signingConfig signingConfigs.debug
+            // Both editions and the companion must use the same private update identity.
+            signingConfig signingConfigs.publicRelease
         }
     }
 
@@ -38,6 +66,12 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    externalNativeBuild {
+        cmake {
+            path file('src/advanced/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
 }
 
 dependencies {
@@ -45,4 +79,19 @@ dependencies {
     implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
     // Test only (never in the APK): plain JVM tests for the module card validators, src/test.
     testImplementation 'junit:junit:4.13.2'
+}
+
+// Basic never packages the native settings bridge or declares its privileged providers.
+androidComponents {
+    onVariants(selector().withFlavor('edition', 'basic')) { variant ->
+        variant.packaging.jniLibs.excludes.add('**/libcytv_ksc_read.so')
+    }
+}
+tasks.configureEach { task ->
+    if (task.name.startsWith('assemble') && task.name.endsWith('Release')) {
+        task.doFirst {
+            if (!(providers.gradleProperty('releaseCertificateSha256').getOrElse('') ==~ /[0-9a-f]{64}/))
+                throw new GradleException('Use python scripts/build.py with your signing key; an explicit certificate pin is required.')
+        }
+    }
 }

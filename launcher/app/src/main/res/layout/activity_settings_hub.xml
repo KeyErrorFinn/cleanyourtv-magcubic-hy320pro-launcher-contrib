@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#FF000000" android:orientation="horizontal" android:paddingStart="56dp" android:paddingEnd="56dp" android:paddingTop="44dp" android:paddingBottom="32dp">
+    <LinearLayout android:layout_width="250dp" android:layout_height="match_parent" android:orientation="vertical" android:paddingEnd="40dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="CLEANYOURTV" android:textSize="12sp" android:letterSpacing="0.18" android:textColor="#FF969696" android:fontFamily="@string/font_medium" />
+        <ImageView android:id="@+id/settingsPageIcon" android:layout_width="32dp" android:layout_height="32dp" android:layout_marginTop="18dp" android:contentDescription="@null" android:src="@drawable/settings_info" />
+        <TextView android:id="@+id/settingsHeading" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:textSize="34sp" android:textColor="#FFFFFFFF" android:fontFamily="@string/font_light" />
+        <TextView android:id="@+id/settingsSubtitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:textSize="15sp" android:lineSpacingExtra="5dp" android:textColor="#FFAAAAAA" android:fontFamily="@font/outfit_regular" />
+    </LinearLayout>
+    <ScrollView android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent" android:clipToPadding="false" android:padding="4dp" android:scrollbars="none">
+        <LinearLayout android:id="@+id/settingsHubRows" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+    </ScrollView>
+</LinearLayout>

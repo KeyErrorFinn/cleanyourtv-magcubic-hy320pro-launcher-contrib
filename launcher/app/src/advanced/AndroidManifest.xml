@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"><application><activity android:name=".RestoreLanguageActivity" android:exported="true" android:permission="android.permission.CHANGE_CONFIGURATION" android:excludeFromRecents="true" android:screenOrientation="landscape" android:configChanges="locale|layoutDirection" />
+        <provider android:name=".SettingsSessionProvider" android:authorities="com.gathin.tvhome.settings-session" android:exported="true" android:permission="android.permission.DUMP" />
+        <provider android:name=".ProjectionRecoveryProvider" android:authorities="com.gathin.tvhome.projection-recovery" android:exported="true" android:permission="android.permission.DUMP" />
+        
+        <provider android:name=".StarterStatusProvider" android:authorities="com.gathin.tvhome.starter-status" android:exported="true" android:permission="com.gathin.tvhome.permission.SETTINGS_STARTER" />
+    </application><permission android:name="com.gathin.tvhome.permission.SETTINGS_STARTER" android:protectionLevel="signature" />
+    
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    
+    <uses-permission android:name="android.permission.CHANGE_CONFIGURATION" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    
+    <uses-permission android:name="com.gathin.tvhome.permission.SETTINGS_STARTER" />
+    </manifest>

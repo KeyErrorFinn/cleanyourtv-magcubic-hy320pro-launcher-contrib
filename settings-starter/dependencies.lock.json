@@ -1,0 +1,14 @@
+[
+  {
+    "file": "boringssl-20250114.aar",
+    "url": "https://repo.maven.apache.org/maven2/io/github/vvb2060/ndk/boringssl/20250114/boringssl-20250114.aar",
+    "sha256": "366c9af78cee572ffcfad6e8c17650646b9f79492e8177d35226a2a5569f3fbc",
+    "extract_to": "boringssl"
+  },
+  {
+    "file": "conscrypt-android-2.8.0.aar",
+    "url": "https://repo.maven.apache.org/maven2/org/conscrypt/conscrypt-android/2.8.0/conscrypt-android-2.8.0.aar",
+    "sha256": "752044c289bc98e2dcabc00a1f88ca158b3aa3f505b38f124552bf4b2a0902b1",
+    "extract_to": "conscrypt-2.8.0"
+  }
+]

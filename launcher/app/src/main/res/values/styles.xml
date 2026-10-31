@@ -4,6 +4,7 @@
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:alertDialogTheme">@style/SettingsPopupTheme</item>
     </style>
 
     <!-- Frosted pill, tvOS style. -->
@@ -36,6 +37,7 @@
     </style>
 
     <style name="SettingsRow">
+        <item name="android:fontFamily">@font/outfit_regular</item>
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">52dp</item>
         <item name="android:gravity">center_vertical</item>
@@ -52,5 +54,16 @@
         <item name="android:layout_weight">1</item>
         <item name="android:layout_marginEnd">10dp</item>
         <item name="android:gravity">center</item>
+    </style>
+    <style name="SettingsPopupTheme" parent="android:Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/settings_popup_background</item>
+        <item name="android:colorBackground">#101216</item>
+        <item name="android:textColorPrimary">#F5F7FA</item>
+        <item name="android:textColorSecondary">#D5DBE2</item>
+        <item name="android:textColorHint">#C5CDD7</item>
+        <item name="android:colorAccent">#9FE6DB</item>
+        <item name="android:fontFamily">@font/outfit_regular</item>
+        <item name="android:windowMinWidthMajor">64%</item>
+        <item name="android:windowMinWidthMinor">64%</item>
     </style>
 </resources>

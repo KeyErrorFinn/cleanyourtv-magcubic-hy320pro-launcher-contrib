@@ -207,7 +207,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private final Rect tileRect = new Rect();
     private final Rect revealRect = new Rect();
     // Static so they survive the activity being destroyed while another app is open (low-memory TVs,
-    // or Developer options → "Don't keep activities"); they only reset when the process dies.
+    // or Developer options â†’ "Don't keep activities"); they only reset when the process dies.
     private static int lastFocused = 0;
     /** App of the last focused tile, so focus follows it when the app list changes. */
     private static String lastFocusedKey;
@@ -321,6 +321,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         public void onInputRemoved(String inputId) {
             updateInputsButton();
         }
+
+        @Override
+        public void onInputStateChanged(String inputId, int state) {
+            updateInputsButton();
+        }
     };
     /** Listens for any VPN coming up or going down, even one this app's traffic is excluded from. */
     private final ConnectivityManager.NetworkCallback vpnCallback = new ConnectivityManager.NetworkCallback() {
@@ -369,9 +374,48 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
     };
 
+    // HY320 Pro selects HOME before user 0 unlocks. Keep credentials/preferences untouched
+    // until ACTION_USER_UNLOCKED; no boot receiver, service, storage migration or polling.
+    private boolean waitingForUnlock;
+    private BroadcastReceiver unlockReceiver;
+
+    private boolean userStorageUnlocked() {
+        android.os.UserManager users = getSystemService(android.os.UserManager.class);
+        return users != null && users.isUserUnlocked();
+    }
+
+    private void showEarlyBootHome() {
+        waitingForUnlock = true;
+        TextView welcome = new TextView(this);
+        welcome.setText(R.string.boot_welcome);
+        welcome.setTextSize(28);
+        welcome.setTextColor(android.graphics.Color.WHITE);
+        welcome.setBackgroundColor(android.graphics.Color.BLACK);
+        welcome.setTypeface(getResources().getFont(R.font.outfit_light));
+        welcome.setGravity(Gravity.CENTER);
+        setContentView(welcome);
+        unlockReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (Intent.ACTION_USER_UNLOCKED.equals(intent.getAction())) recreate();
+            }
+        };
+        IntentFilter filter = new IntentFilter(Intent.ACTION_USER_UNLOCKED);
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            registerReceiver(unlockReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(unlockReceiver, filter);
+        // Close the race between the initial check and receiver registration.
+        if (userStorageUnlocked()) welcome.post(this::recreate);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (!userStorageUnlocked()) { showEarlyBootHome(); return; }
+        // Optional signed companion recovers the helper after launcher-process recreation.
+        if (BuildConfig.ADVANCED_SETTINGS) sendBroadcast(new Intent("com.gathin.tvhome.SETTINGS_STARTER_READY")
+                .setComponent(new android.content.ComponentName("local.hy320.helperstarter",
+                        "local.hy320.helperstarter.ReadyReceiver")),
+                "com.gathin.tvhome.permission.SETTINGS_STARTER");
         setContentView(R.layout.activity_main);
         density = getResources().getDisplayMetrics().density;
         // config.xml, overlaid by config.json from a pushed theme (see Config and tools/theme.sh).
@@ -688,11 +732,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         });
         launcherSettingsButton = cfg.launcherSettingsButton;
         if (launcherSettingsButton) {
-            ((TextView) btnSettings).setText(R.string.launcher_settings);
-            ((TextView) btnSettings).setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_home_settings_pill, 0, 0, 0);
+            ((TextView) btnSettings).setText(R.string.settings);
+            ((TextView) btnSettings).setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_settings, 0, 0, 0);
         }
         btnSettings.setOnClickListener(v -> {
-            if (launcherSettingsButton) startActivityForResult(
+            if (launcherSettingsButton && BuildConfig.ADVANCED_SETTINGS) startActivityForResult(
                     new Intent(this, LauncherSettingsActivity.class), LAUNCHER_SETTINGS_REQUEST);
             else open(systemIntent(Settings.ACTION_SETTINGS));
         });
@@ -744,6 +788,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             makeIconOnly((TextView) btnSettings);
         }
         if (cfg.iconOnlyInputs) makeIconOnly((TextView) btnInputs);
+        if (wifiIconOnly) installExpandingShortcut(btnWifi, () -> networkShortcutLabel);
+        if (btnLibraryTop.getVisibility() == View.VISIBLE)
+            installExpandingShortcut((TextView) btnLibraryTop, () -> getString(R.string.app_library));
+        if (iconOnlyButtons)
+            installExpandingShortcut((TextView) btnSettings, () -> getString(R.string.settings));
+        btnInputs.setOnFocusChangeListener((view, focused) -> updateHdmiShortcutWidth());
         btnSettings.setOnLongClickListener(v -> {
             showSettingsMenu();
             return true;
@@ -763,8 +813,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             int firstButton = btnInputs.getVisibility() == View.VISIBLE ? R.id.btnInputs : firstTopButton().getId();
             int leftButton = rtlMenuBar ? R.id.btnSettings : firstButton;
             int rightButton = rtlMenuBar ? firstButton : R.id.btnSettings;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) return v.getId() == leftButton;
-            return keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && v.getId() == rightButton;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                // Animated widths must not let Android's spatial focus search skip a neighbour.
+                ViewGroup bar = findViewById(R.id.topButtons);
+                int direction = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1;
+                if (bar.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL) direction = -direction;
+                for (int i = bar.indexOfChild(v) + direction; i >= 0 && i < bar.getChildCount(); i += direction) {
+                    View next = bar.getChildAt(i);
+                    if (next.getVisibility() == View.VISIBLE && next.isFocusable()) {
+                        next.requestFocus();
+                        break;
+                    }
+                }
+                return true;
+            }
+            return false;
         };
         btnInputs.setOnKeyListener(pillKeys);
         btnWifi.setOnKeyListener(pillKeys);
@@ -776,9 +839,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             List<View> pills = new ArrayList<>(Arrays.asList(btnInputs, btnWifi, btnReorder, btnLibraryTop, btnSettings));
             pills.addAll(topAppButtons);
             for (View button : pills) {
-                button.setOnFocusChangeListener((view, focused) -> view.animate()
-                        .scaleX(focused ? 1.04f : 1f).scaleY(focused ? 1.04f : 1f)
-                        .setDuration(reducedMotion ? Motion.REDUCED_MS : 160).start());
+                View.OnFocusChangeListener previous = button.getOnFocusChangeListener();
+                button.setOnFocusChangeListener((view, focused) -> {
+                    if (previous != null) previous.onFocusChange(view, focused);
+                    view.animate().scaleX(focused ? 1.04f : 1f).scaleY(focused ? 1.04f : 1f)
+                            .setDuration(reducedMotion ? Motion.REDUCED_MS : 160).start();
+                });
             }
         }
         if (festive) applyFestiveSkin((TextView) btnInputs, (TextView) btnSettings);
@@ -876,6 +942,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (waitingForUnlock) { setIntent(intent); return; }
         if (openLauncherSettingsIfAsked(intent)) return;
         if (openInputsIfAsked(intent)) return;
         if (intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
@@ -894,6 +961,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onStart() {
         super.onStart();
+        if (waitingForUnlock) return;
         stopped = false;
         started = true;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -908,6 +976,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onResume() {
         super.onResume();
+        if (waitingForUnlock) { if (userStorageUnlocked()) recreate(); return; }
         // A festival that started or ended while Home was in the background: rebuild with or without it.
         if (festive != festival.active(LocalDate.now())) {
             recreate();
@@ -976,6 +1045,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (waitingForUnlock) return;
         if (requestCode == LAUNCHER_SETTINGS_REQUEST && resultCode == RESULT_OK
                 && data != null && data.getBooleanExtra(LauncherSettingsActivity.EXTRA_REORDER, false)) {
             getIntent().putExtra(LauncherSettingsActivity.EXTRA_REORDER, true);
@@ -1108,6 +1178,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     public void onUserInteraction() {
         super.onUserInteraction();
+        if (waitingForUnlock) return;
         restartIdleClock();
     }
 
@@ -1119,6 +1190,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onPause() {
         super.onPause();
+        if (waitingForUnlock) return;
         root.removeCallbacks(showIdleClock);
         endReorder();   // Home or another app while reordering keeps the order so far
         wallpaperPlayer.stop();
@@ -1139,6 +1211,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onStop() {
         super.onStop();
+        if (waitingForUnlock) return;
         started = false;
         unregisterReceiver(timeReceiver);
         handler.removeCallbacks(clockCheck);
@@ -1154,6 +1227,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
+        if (waitingForUnlock) return;
         // RUNNING_LOW and CRITICAL also arrive while Home is visible when an accessibility service keeps the
         // process in the foreground; never blank the screen the owner is looking at.
         if (!MemoryTrimPolicy.shouldRelease(level, started)) return;
@@ -1171,6 +1245,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (waitingForUnlock) return;
         if (hasFocus) {
             startPendingSettingsReorder();
             if (libraryFocusPending && appLibrary == null) focusLibrary();
@@ -1181,6 +1256,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (waitingForUnlock) {
+            if (unlockReceiver != null) unregisterReceiver(unlockReceiver);
+            return;
+        }
         unregisterReceiver(packageReceiver);
         wallpaperPlayer.close();
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
@@ -1224,6 +1303,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (waitingForUnlock) return super.dispatchKeyEvent(event);
         if (handleSettingsKey(event)) return true;
         if (tileMenuEnabled && !reordering && openPopup == null && cardPrompt == null
                 && event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
@@ -1871,7 +1951,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /**
      * The glow used to be a full-screen radial GradientDrawable. On Android 10 that drawable is
-     * drawn on the CPU, so fading it for half a second redrew 1920×1080 every frame and the
+     * drawn on the CPU, so fading it for half a second redrew 1920Ã—1080 every frame and the
      * highlight looked like it was running at a few frames per second. A small bitmap stretched
      * over the screen is one texture. It is painted once in white and tinted with the app's colour,
      * so changing apps neither repaints it on the CPU (about 11 ms) nor uploads it again.
@@ -2045,9 +2125,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (!showStats) stats.setVisibility(View.GONE);
     }
 
-    /** One quiet line, e.g. "CPU 8%  ·  Memory 430 MB free  ·  Storage 3.1 GB free". Runs off the main thread. */
+    /** One quiet line, e.g. "CPU 8%  Â·  Memory 430 MB free  Â·  Storage 3.1 GB free". Runs off the main thread. */
     private static void appendStat(StringBuilder line, String part) {
-        if (line.length() > 0) line.append("  ·  ");
+        if (line.length() > 0) line.append("  Â·  ");
         line.append(part);
     }
 
@@ -2288,11 +2368,89 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             button.setCompoundDrawablesRelative(logo, null, null, null);
             button.setCompoundDrawableTintList(null);
             button.setContentDescription(label);
+            // Labels/icons identify the shortcut; the installed receiver still handles casting.
+            CharSequence shortcutLabel = "com.ionitech.airscreen".equals(pkg) ? "ChromeCast"
+                    : "com.softwinner.miracastReceiver".equals(pkg) ? "Miracast"
+                    : "com.hisilicon.explorer".equals(pkg) ? "USB" : label;
+            if ("com.ionitech.airscreen".equals(pkg) || "com.softwinner.miracastReceiver".equals(pkg)) {
+                button.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                        "com.ionitech.airscreen".equals(pkg) ? R.drawable.ic_cast_shortcut
+                                : R.drawable.ic_mirroring_shortcut, 0, 0, 0);
+                button.setCompoundDrawableTintList(button.getTextColors());
+            }
+            button.setContentDescription(shortcutLabel);
+            installExpandingShortcut(button, () -> shortcutLabel);
             Intent target = launch;
             button.setOnClickListener(v -> open(new Intent(target)));
             bar.addView(button, bar.indexOfChild(btnWifi));
             topAppButtons.add(button);
         }
+    }
+
+    private final Set<View> expandedShortcuts = new HashSet<>();
+    private final Map<View, Runnable> shortcutRefresh = new HashMap<>();
+    private CharSequence networkShortcutLabel = "Network";
+
+    private void updateHdmiShortcutWidth() {
+        if (btnInputs == null) return;
+        TextView hdmi = (TextView) btnInputs;
+        boolean compact = !expandedShortcuts.isEmpty() && !hdmi.hasFocus();
+        hdmi.setText(compact ? null : getString(R.string.inputs));
+        hdmi.setContentDescription(hdmiStatusDescription());
+        hdmi.setPaddingRelative(Math.round((compact ? 10 : 16) * density), 0,
+                Math.round((compact ? 10 : 20) * density), 0);
+        hdmi.setCompoundDrawablePadding(Math.round((compact ? 0 : 9) * density));
+        hdmi.getLayoutParams().width = compact ? Math.round(42 * density) : ViewGroup.LayoutParams.WRAP_CONTENT;
+        hdmi.requestLayout();
+    }
+
+    private void installExpandingShortcut(TextView button, java.util.function.Supplier<CharSequence> labelSource) {
+        int collapsed = Math.round(42 * density);
+        int gap = Math.round(8 * density);
+        button.setSingleLine(true);
+        button.setEllipsize(TextUtils.TruncateAt.END);
+        final boolean[] hovered = {false};
+        final ValueAnimator[] animation = {null};
+        Runnable update = () -> {
+            boolean show = button.hasFocus() || hovered[0];
+            CharSequence label = labelSource.get();
+            int expanded = Math.min(Math.round(165 * density), collapsed + gap
+                    + (int) Math.ceil(button.getPaint().measureText(label.toString())));
+            if (show) expandedShortcuts.add(button); else expandedShortcuts.remove(button);
+            updateHdmiShortcutWidth();
+            if (animation[0] != null) animation[0].cancel();
+            button.setText(show ? label : null);
+            button.setCompoundDrawablePadding(show ? gap : 0);
+            int target = show ? expanded : collapsed;
+            if (reducedMotion || !animations || !button.isLaidOut()) {
+                button.getLayoutParams().width = target;
+                button.requestLayout();
+                return;
+            }
+            animation[0] = ValueAnimator.ofInt(button.getWidth(), target);
+            animation[0].setDuration(140);
+            animation[0].addUpdateListener(value -> {
+                button.getLayoutParams().width = (int) value.getAnimatedValue();
+                button.requestLayout();
+            });
+            animation[0].start();
+        };
+        shortcutRefresh.put(button, update);
+        button.setOnFocusChangeListener((view, focused) -> update.run());
+        button.setOnHoverListener((view, event) -> {
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_HOVER_ENTER) hovered[0] = true;
+            else if (event.getActionMasked() == android.view.MotionEvent.ACTION_HOVER_EXIT) hovered[0] = false;
+            else return false;
+            update.run();
+            return false;
+        });
+        button.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View view) { }
+            @Override public void onViewDetachedFromWindow(View view) {
+                if (animation[0] != null) animation[0].cancel();
+                expandedShortcuts.remove(button);
+            }
+        });
     }
 
     @Override public void onLibraryUp() {
@@ -2411,8 +2569,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Locale-specific day parts (app language on Android 13+).
         // Indonesian: Pagi 00-10, Siang 10-15, Sore 15-18, Malam 18-24.
         // Spain (es-ES) and Catalan: "Buenas tardes" into the evening; "Buenas noches" from 21.
-        // Latin American Spanish (es-MX, es-AR, …) keeps the default hours: evening strings are also
-        // «Buenas noches», and there «Buenas noches» from ~17 matches local use better than Spain's 21.
+        // Latin American Spanish (es-MX, es-AR, â€¦) keeps the default hours: evening strings are also
+        // Â«Buenas nochesÂ», and there Â«Buenas nochesÂ» from ~17 matches local use better than Spain's 21.
         Locale locale = getResources().getConfiguration().getLocales().get(0);
         String lang = locale.getLanguage();
         String country = locale.getCountry();
@@ -2582,9 +2740,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             float room = btnWifi.getMaxWidth() - btnWifi.getPaddingStart() - btnWifi.getPaddingEnd() - iconRoom
                     - span.getSize(paint, badge, 0, badge.length(), null) - paint.measureText(" ") - 2 * density;
             String name = TextUtils.ellipsize(text, paint, Math.max(0, room), TextUtils.TruncateAt.END).toString();
-            // A long badge ("VPN отключён") can leave room for a stub like "MT…", which says nothing and, after
+            // A long badge ("VPN Ð¾Ñ‚ÐºÐ»ÑŽÑ‡Ñ‘Ð½") can leave room for a stub like "MTâ€¦", which says nothing and, after
             // rounding, can push the badge itself out of the pill. Show the badge alone then. On Ethernet the
-            // icon already names the link, and "Ethernet" cut to "Ethe…" or not depended on the font size (#961),
+            // icon already names the link, and "Ethernet" cut to "Etheâ€¦" or not depended on the font size (#961),
             // so Ethernet always shows the icon and the badge alone.
             // The space stays even then: a line holding only the span gets no font metrics and collapses.
             boolean stub = name.length() < text.length() && name.length() < 5;
@@ -2596,8 +2754,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             btnWifi.setText(text);
         }
         if (wifiIconOnly) {
-            btnWifi.setContentDescription(btnWifi.getText());
-            btnWifi.setText(null);
+            networkShortcutLabel = btnWifi.getText();
+            btnWifi.setContentDescription(networkShortcutLabel);
+            Runnable refresh = shortcutRefresh.get(btnWifi);
+            if (refresh != null) refresh.run(); else btnWifi.setText(null);
         }
         if (festive && diya != null) {
             if (online && flame == 0) flame = 3;   // online some other way (cellular, USB tethering)
@@ -2701,7 +2861,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void openNetworkPill() {
         Intent i = vpnApp.isEmpty() ? null : getPackageManager().getLeanbackLaunchIntentForPackage(vpnApp);
         if (i == null && !vpnApp.isEmpty()) i = getPackageManager().getLaunchIntentForPackage(vpnApp);
-        open(i != null ? i : systemIntent(Settings.ACTION_WIFI_SETTINGS));
+        open(i != null ? i : launcherSettingsButton && BuildConfig.ADVANCED_SETTINGS
+                ? new Intent(this, LauncherSettingsActivity.class).putExtra("settings_page", "network")
+                : systemIntent(Settings.ACTION_WIFI_SETTINGS));
     }
 
 
@@ -2729,7 +2891,37 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
         }
         btnInputs.setVisibility(any ? View.VISIBLE : View.GONE);
+        updateHdmiConnectionIcon(tim);
     }
+
+    private void updateHdmiConnectionIcon(TvInputManager manager) {
+        if (btnInputs == null || !sourcePanelExtra.equals("input_source=HDMI2")) return;
+        // This firmware leaves its input list empty after a cold boot without an active
+        // source. Keep the requested red indicator until an active signal is reported.
+        int status = 1;
+        if (manager != null) for (TvInputInfo input : manager.getTvInputList()) {
+            if (input.getId().equals("com.softwinner.vis/.HdmiInputService/HW2")) {
+                // This firmware reports state 1 even with the cable physically unplugged.
+                // Treat it as loss of active signal, not trustworthy standby detection.
+                status = manager.getInputState(input.getId()) == TvInputManager.INPUT_STATE_CONNECTED ? 0 : 1;
+                break;
+            }
+        }
+        if (hdmiSignalState != null && hdmiSignalState == status) return;
+        hdmiSignalState = status;
+        TextView button = (TextView) btnInputs;
+        button.setCompoundDrawableTintList(status < 0 ? button.getTextColors() : null);
+        button.setCompoundDrawablesRelativeWithIntrinsicBounds(status == 0 ? R.drawable.ic_hdmi_connected
+                : status == 1 ? R.drawable.ic_hdmi_disconnected : R.drawable.ic_input, 0, 0, 0);
+        button.setContentDescription(hdmiStatusDescription());
+    }
+
+    private CharSequence hdmiStatusDescription() {
+        return hdmiSignalState == null || hdmiSignalState < 0 ? "HDMI, status unavailable"
+                : hdmiSignalState == 0 ? "HDMI, source connected" : "HDMI, no active source detected";
+    }
+
+    private Integer hdmiSignalState;
 
     /** boot_to_live_tv, or the Open on start app: the first time Home comes up after the TV starts, open that app
      *  instead. Once per boot, keyed on Settings.Global.BOOT_COUNT and committed to disk before the app starts: on a
@@ -2770,7 +2962,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             try {
                 i.putExtra(sourcePanelExtra.substring(0, eq).trim(),
                         Integer.parseInt(sourcePanelExtra.substring(eq + 1).trim()));
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException stringExtra) {
+                // HY320 Pro (Projector_20260713.153921): the exported native HDMI player
+                // expects input_source="HDMI2", as sent by its own AwSource app.
+                i.putExtra(sourcePanelExtra.substring(0, eq).trim(),
+                        sourcePanelExtra.substring(eq + 1).trim());
             }
         }
         try {
@@ -2963,7 +3159,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (!hdmi) sawNonHdmi = true;
                 List<TvInputInfo> devices = cecDevices.get(info.getId());
                 if (devices != null) {
-                    // "Apple TV · HDMI 1": the device's own name (or the one given to it or to its port in
+                    // "Apple TV Â· HDMI 1": the device's own name (or the one given to it or to its port in
                     // Settings > Inputs), then the port. Opening the device's input also makes it the CEC
                     // active source, which wakes it.
                     for (TvInputInfo device : devices) {
@@ -3115,7 +3311,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             status.setVisibility(View.VISIBLE);
         }
         addInputRow(rows, popup, R.drawable.ic_swap_vert, getString(R.string.reorder), -1, this::toggleReorder);
-        if (launcherSettingsButton) {
+        if (launcherSettingsButton && BuildConfig.ADVANCED_SETTINGS) {
             addInputRow(rows, popup, R.drawable.ic_home_settings_pill, getString(R.string.launcher_settings), -1,
                     () -> startActivityForResult(new Intent(this, LauncherSettingsActivity.class), LAUNCHER_SETTINGS_REQUEST));
         } else {
@@ -3134,7 +3330,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
         LinearLayout rows = panel.findViewById(R.id.rows);
         PopupWindow popup = glassPopup(panel, (int) (200 * density));
-        if (!launcherSettingsButton) addSettingsMenuRow(rows, popup, R.string.launcher_settings, () -> startActivityForResult(
+        if (!launcherSettingsButton || !BuildConfig.ADVANCED_SETTINGS) addSettingsMenuRow(rows, popup, R.string.launcher_settings, () -> startActivityForResult(
                 new Intent(this, LauncherSettingsActivity.class), LAUNCHER_SETTINGS_REQUEST));
         // Firmware that ships its own settings app next to the AOSP one (Xiaomi China is one): the
         // vendor app holds pages the AOSP settings has no row for, such as Account & Security with

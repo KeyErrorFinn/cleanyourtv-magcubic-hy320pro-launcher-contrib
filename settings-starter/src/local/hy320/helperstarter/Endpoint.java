@@ -1,0 +1,5 @@
+package local.hy320.helperstarter;
+/** Reads only Android's published current local TLS port; no discovery, scanning or fixed port assumption. */
+final class Endpoint {
+ static int port()throws Exception{Process process=new ProcessBuilder("/system/bin/getprop","service.adb.tls.port").start();try{if(!process.waitFor(2,java.util.concurrent.TimeUnit.SECONDS))throw new java.io.IOException("TLS port read timed out");if(process.exitValue()!=0)throw new java.io.IOException("TLS port unavailable");java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();java.io.InputStream input=process.getInputStream();for(int i=0;i<32;i++){int value=input.read();if(value<0)break;bytes.write(value);}String value=new String(bytes.toByteArray(),java.nio.charset.StandardCharsets.US_ASCII).trim();if(!value.matches("[0-9]{1,5}"))throw new java.io.IOException("Wireless debugging port is unavailable");int port=Integer.parseInt(value);if(port<1||port>65535)throw new java.io.IOException("Invalid local TLS port");return port;}finally{process.destroy();}}
+}

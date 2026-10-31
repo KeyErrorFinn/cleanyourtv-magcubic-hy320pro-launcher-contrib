@@ -460,15 +460,17 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         h.card.setTranslationZ(focused && advancedEffects ? 8f * ctx.getResources().getDisplayMetrics().density : 0f);
         h.banner.setScaleX(focused && advancedEffects ? 1.035f : 1f);
         h.banner.setScaleY(focused && advancedEffects ? 1.035f : 1f);
-        // A fully opaque banner covers the whole card (centerCrop), so the card's own fill under it is drawn for
-        // nothing on every frame; keep it under banners with transparent parts and under icon tiles.
-        h.card.setBackground(e.banner != null && e.banner.getOpacity() == PixelFormat.OPAQUE ? null : h.cardBackground);
+        // The owner selected edge-to-edge artwork. Reuse the banner's aspect-preserving
+        // center-crop view for icon-only apps too, instead of a small icon and inner caption.
+        // Explicit uniform_tiles themes retain their existing centred-icon presentation.
+        Drawable tileArtwork = e.banner != null ? e.banner : !uniformTiles && e.kind == Entry.APP ? e.icon : null;
+        h.card.setBackground(tileArtwork != null && tileArtwork.getOpacity() == PixelFormat.OPAQUE ? null : h.cardBackground);
         if (uniformTiles && e.banner == null) {
             if (e.backdrop == null) e.backdrop = backdrop(e.icon, ambientColorAt(position));
             h.card.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, e.backdrop));
         }
-        if (e.banner != null) {
-            h.banner.setImageDrawable(e.banner);
+        if (tileArtwork != null) {
+            h.banner.setImageDrawable(tileArtwork);
             h.banner.setVisibility(View.VISIBLE);
             h.icon.setVisibility(View.GONE);
             h.label.setVisibility(View.GONE);
